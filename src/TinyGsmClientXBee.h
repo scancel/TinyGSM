@@ -382,7 +382,7 @@ public:
 
     sendAT(GF("AI"));
     String res = readResponse();
-    RegStatus stat;
+    RegStatus stat = REG_UNKNOWN;
 
     switch (beeType){
       case XBEE_WIFI: {
@@ -393,7 +393,8 @@ public:
         else if(res == GF("2"))  // 0x02 Wi-Fi transceiver initialized, but not yet scanning for access point.
           stat = REG_SEARCHING;
         else if(res == GF("13")) { // 0x13 Disconnecting from access point.
-          sendAT(GF("NR"));  // Do a network reset; the S6B tends to get stuck "disconnecting"
+          sendAT(GF("NR0"));  // Do a network reset; the S6B tends to get stuck "disconnecting"
+          waitResponse(5000);
           writeChanges();
           stat = REG_UNREGISTERED;
         }
