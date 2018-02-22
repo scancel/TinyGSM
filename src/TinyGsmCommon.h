@@ -280,29 +280,46 @@ public:
     return TinyGsmIpFromString(getLocalIP());
   }
 
-  /*
-   * WiFi functions
-   */
-#if defined(TINY_GSM_MODEM_HAS_GPRS)
+#if defined(TINY_GSM_MODEM_HAS_GPRS) && defined(TINY_GSM_MODEM_HAS_WIFI)
   virtual bool networkConnect(const char* ssid, const char* pwd) = 0;
-  virtual bool networkDisconnect(const char* ssid, const char* pwd) = 0;
-#endif
-
-  /*
-   * GPRS functions
-   */
-#if defined(TINY_GSM_MODEM_HAS_GPRS)
+  virtual bool networkDisconnect() = 0;
   virtual bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "") = 0;
   virtual bool gprsDisconnect() = 0;
 #endif
 
   /*
+   * WiFi functions
+   */
+#if !defined(TINY_GSM_MODEM_HAS_GPRS) && defined(TINY_GSM_MODEM_HAS_WIFI)
+  virtual bool networkConnect(const char* ssid, const char* pwd) = 0;
+  virtual bool networkDisconnect() = 0;
+  bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "") {
+      return networkConnect(user, pwd);
+  }
+  bool gprsDisconnect() { return networkDisconnect()};
+#endif
+
+  /*
+   * GPRS functions
+   */
+#if defined(TINY_GSM_MODEM_HAS_GPRS) && !defined(TINY_GSM_MODEM_HAS_WIFI)
+  virtual bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "") = 0;
+  virtual bool gprsDisconnect() = 0;
+  bool networkConnect(const char* ssid, const char* pwd) {
+    return gprsConnect(ssid);
+  }
+  bool networkDisconnect() { return gprsDisconnect()};
+#endif
+
+  /*
    * Messaging functions
    */
-
+   
+#if defined(TINY_GSM_MODEM_HAS_GPRS)
   virtual void sendUSSD() = 0;
   virtual void sendSMS() = 0;
   virtual bool sendSMS(const String& number, const String& text) = 0;
+#endif
 
 
   /*
