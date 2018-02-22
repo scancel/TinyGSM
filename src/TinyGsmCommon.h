@@ -247,26 +247,24 @@ public:
    */
 
   virtual bool restart() = 0;
-  bool poweroff() TINY_GSM_ATTR_NOT_AVAILABLE;
-  bool radioOff() TINY_GSM_ATTR_NOT_IMPLEMENTED;
-  bool sleepEnable(bool enable = true) TINY_GSM_ATTR_NOT_IMPLEMENTED;
 
   /*
    * SIM card functions
    */
-
-  virtual bool simUnlock(const char *pin) TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual String getSimCCID() TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual String getIMEI() TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual int getSimStatus(unsigned long timeout = 10000L) TINY_GSM_ATTR_NOT_AVAILABLE;
-  String getOperator() TINY_GSM_ATTR_NOT_AVAILABLE;
+#if defined(TINY_GSM_MODEM_HAS_GPRS)
+  virtual bool simUnlock(const char *pin) = 0;
+  virtual String getSimCCID() = 0;
+  virtual String getIMEI() = 0;
+  virtual int getSimStatus(unsigned long timeout = 10000L) = 0;
+  virtual String getOperator() = 0;
+#endif
 
   /*
    * Generic network functions
    */
 
-  virtual int getRegistrationStatus() TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual int getSignalQuality() TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual int getRegistrationStatus() = 0;
+  virtual int getSignalQuality() = 0;
   virtual bool isNetworkConnected() = 0;
   virtual bool waitForNetwork(unsigned long timeout = 60000L) {
     for (unsigned long start = millis(); millis() - start < timeout; ) {
@@ -277,8 +275,7 @@ public:
     }
     return false;
   }
-  virtual String getLocalIP() TINY_GSM_ATTR_NOT_AVAILABLE;
-
+  virtual String getLocalIP() = 0;
   virtual IPAddress localIP() {
     return TinyGsmIpFromString(getLocalIP());
   }
@@ -286,41 +283,35 @@ public:
   /*
    * WiFi functions
    */
-
-  virtual bool networkConnect(const char* ssid, const char* pwd)
-    TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual bool networkDisconnect(const char* ssid, const char* pwd)
-    TINY_GSM_ATTR_NOT_AVAILABLE;
+#if defined(TINY_GSM_MODEM_HAS_GPRS)
+  virtual bool networkConnect(const char* ssid, const char* pwd) = 0;
+  virtual bool networkDisconnect(const char* ssid, const char* pwd) = 0;
+#endif
 
   /*
    * GPRS functions
    */
-
-  virtual bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "")
-     TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual bool gprsDisconnect() TINY_GSM_ATTR_NOT_AVAILABLE;
+#if defined(TINY_GSM_MODEM_HAS_GPRS)
+  virtual bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "") = 0;
+  virtual bool gprsDisconnect() = 0;
+#endif
 
   /*
    * Messaging functions
    */
 
-  virtual void sendUSSD() TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual void sendSMS() TINY_GSM_ATTR_NOT_AVAILABLE;
-  virtual bool sendSMS(const String& number, const String& text) TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual void sendUSSD() = 0;
+  virtual void sendSMS() = 0;
+  virtual bool sendSMS(const String& number, const String& text) = 0;
 
 
   /*
    * Location functions
    */
 
-  String getGsmLocation() TINY_GSM_ATTR_NOT_AVAILABLE;
-
   /*
    * Battery functions
    */
-
-  uint16_t getBattVoltage() TINY_GSM_ATTR_NOT_AVAILABLE;
-  int getBattPercent() TINY_GSM_ATTR_NOT_AVAILABLE;
 
 public:
 
