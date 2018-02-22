@@ -314,10 +314,8 @@ public:
   /*
    * Messaging functions
    */
-   
+
 #if defined(TINY_GSM_MODEM_HAS_GPRS)
-  virtual void sendUSSD() = 0;
-  virtual void sendSMS() = 0;
   virtual bool sendSMS(const String& number, const String& text) = 0;
 #endif
 
