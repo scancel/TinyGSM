@@ -296,7 +296,7 @@ public:
   bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "") {
       return networkConnect(user, pwd);
   }
-  bool gprsDisconnect() { return networkDisconnect()};
+  bool gprsDisconnect() { return networkDisconnect();}
 #endif
 
   /*
@@ -308,7 +308,7 @@ public:
   bool networkConnect(const char* ssid, const char* pwd) {
     return gprsConnect(ssid);
   }
-  bool networkDisconnect() { return gprsDisconnect()};
+  bool networkDisconnect() { return gprsDisconnect();}
 #endif
 
   /*
