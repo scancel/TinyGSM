@@ -11,22 +11,16 @@
 
 // #define TINY_GSM_DEBUG Serial
 
-#if !defined(TINY_GSM_RX_BUFFER)
-  #define TINY_GSM_RX_BUFFER 64
-#endif
-
 #define TINY_GSM_MUX_COUNT 1  // Multi-plexing isn't supported using command mode
 
 #include <TinyGsmCommon.h>
 
-#define GSM_NL "\r"
-static const char GSM_OK[] TINY_GSM_PROGMEM = "OK" GSM_NL;
-static const char GSM_ERROR[] TINY_GSM_PROGMEM = "ERROR" GSM_NL;
-
-enum SimStatus {
-  SIM_ERROR = 0,
-  SIM_READY = 1,
-  SIM_LOCKED = 2,
+enum RegStatus {
+  REG_UNREGISTERED = 0,
+  REG_SEARCHING    = 2,
+  REG_DENIED       = 3,
+  REG_OK           = 1,
+  REG_UNKNOWN      = 4,
 };
 
 enum XBeeType {
@@ -34,17 +28,8 @@ enum XBeeType {
   XBEE_WIFI  = 1,
 };
 
-enum RegStatus {
-  REG_UNREGISTERED = 0,
-  REG_SEARCHING    = 2,
-  REG_DENIED       = 3,
-  REG_OK_HOME      = 1,
-  REG_OK_ROAMING   = 5,
-  REG_UNKNOWN      = 4,
-};
 
-
-class TinyGsmXBee
+class TinyGsmXBee : public TinyGSMModem
 {
 
 public:
@@ -204,7 +189,7 @@ public:
 #else
   TinyGsmXBee(Stream& stream)
 #endif
-    : stream(stream)
+  : TinyGSMModem(stream)
   {
     memset(sockets, 0, sizeof(sockets));
   }
@@ -212,9 +197,6 @@ public:
   /*
    * Basic functions
    */
-  bool begin() {
-    return init();
-  }
 
   bool init() {
     guardTime = 1100;  // Start with a default guard time of 1 second
@@ -353,10 +335,6 @@ public:
    * SIM card functions
    */
 
-  bool simUnlock(const char *pin) {  // Not supported
-    return false;
-  }
-
   String getSimCCID() {
     if (!commandMode()) return "";  // Return immediately
     sendAT(GF("S#"));
@@ -373,70 +351,83 @@ public:
     return res;
   }
 
-  SimStatus getSimStatus(unsigned long timeout = 10000L) {
-    return SIM_READY;  // unsupported
+  String getOperator() {
+    if (!commandMode()) return "";  // Return immediately
+    sendAT(GF("MN"));
+    String res = readResponse();
+    exitCommand();
+    return res;
   }
 
-  RegStatus getRegistrationStatus() {
+  /*
+   * Generic network functions
+   */
+
+  int getRegistrationStatus() {
     if (!commandMode()) return REG_UNKNOWN;  // Return immediately
 
     sendAT(GF("AI"));
     String res = readResponse();
+    char buf[3] = {0,};  // Set up buffer for response
+    res.toCharArray(buf, 3);
+    int intRes = strtol(buf, 0, 16);
     RegStatus stat = REG_UNKNOWN;
 
     switch (beeType){
       case XBEE_WIFI: {
-        if(res == GF("0"))  // 0x00 Successfully joined an access point, established IP addresses and IP listening sockets
-          stat = REG_OK_HOME;
-        else if(res == GF("1"))  // 0x01 Wi-Fi transceiver initialization in progress.
+        if(intRes == 0x00)  // 0x00 Successfully joined an access point, established IP addresses and IP listening sockets
+          stat = REG_OK;
+        else if(intRes == 0x01)  // 0x01 Wi-Fi transceiver initialization in progress.
           stat = REG_SEARCHING;
-        else if(res == GF("2"))  // 0x02 Wi-Fi transceiver initialized, but not yet scanning for access point.
+        else if(intRes == 0x02)  // 0x02 Wi-Fi transceiver initialized, but not yet scanning for access point.
           stat = REG_SEARCHING;
-        else if(res == GF("13")) { // 0x13 Disconnecting from access point.
+        else if(intRes == 0x13) { // 0x13 Disconnecting from access point.
           sendAT(GF("NR0"));  // Do a network reset; the S6B tends to get stuck "disconnecting"
           waitResponse(5000);
           writeChanges();
           stat = REG_UNREGISTERED;
         }
-        else if(res == GF("23"))  // 0x23 SSID not configured.
+        else if(intRes == 0x23)  // 0x23 SSID not configured.
           stat = REG_UNREGISTERED;
-        else if(res == GF("24"))  // 0x24 Encryption key invalid (either NULL or invalid length for WEP).
+        else if(intRes == 0x24)  // 0x24 Encryption key invalid (either NULL or invalid length for WEP).
           stat = REG_DENIED;
-        else if(res == GF("27"))  // 0x27 SSID was found, but join failed.
+        else if(intRes == 0x27)  // 0x27 SSID was found, but join failed.
           stat = REG_DENIED;
-        else if(res == GF("40"))  // 0x40 Waiting for WPA or WPA2 Authentication.
+        else if(intRes == 0x40)  // 0x40 Waiting for WPA or WPA2 Authentication.
           stat = REG_SEARCHING;
-        else if(res == GF("41"))  // 0x41 Device joined a network and is waiting for IP configuration to complete
+        else if(intRes == 0x41)  // 0x41 Device joined a network and is waiting for IP configuration to complete
           stat = REG_SEARCHING;
-        else if(res == GF("42"))  // 0x42 Device is joined, IP is configured, and listening sockets are being set up.
+        else if(intRes == 0x42)  // 0x42 Device is joined, IP is configured, and listening sockets are being set up.
           stat = REG_SEARCHING;
-        else if(res == GF("FF"))  // 0xFF Device is currently scanning for the configured SSID.
+        else if(intRes == 0xFF)  // 0xFF Device is currently scanning for the configured SSID.
           stat = REG_SEARCHING;
         else stat = REG_UNKNOWN;
         break;
       }
       case XBEE_CELL: {
-        if(res == GF("0"))  // 0x00 Connected to the Internet.
-          stat = REG_OK_HOME;
-        else if(res == GF("22"))  // 0x22 Registering to cellular network.
+        if(intRes == 0x00)  // 0x00 Connected to the Internet.
+          stat = REG_OK;
+        else if(intRes == 0x22)  // 0x22 Registering to cellular network.
           stat = REG_SEARCHING;
-        else if(res == GF("23"))  // 0x23 Connecting to the Internet.
+        else if(intRes == 0x23)  // 0x23 Connecting to the Internet.
           stat = REG_SEARCHING;
-        else if(res == GF("24"))  // 0x24 The cellular component is missing, corrupt, or otherwise in error.
+        else if(intRes == 0x24)  // 0x24 The cellular component is missing, corrupt, or otherwise in error.
           stat = REG_UNKNOWN;
-        else if(res == GF("25"))  // 0x25 Cellular network registration denied.
+        else if(intRes == 0x25)  // 0x25 Cellular network registration denied.
           stat = REG_DENIED;
-        else if(res == GF("2A")) {  // 0x2A Airplane mode.
+        else if(intRes == 0x2A) {  // 0x2A Airplane mode.
           sendAT(GF("AM0"));  // Turn off airplane mode
+          waitResponse();
           writeChanges();
           stat = REG_UNKNOWN;
         }
-        else if(res == GF("2F")) {  // 0x2F Bypass mode active.
+        else if(intRes == 0x2F) {  // 0x2F Bypass mode active.
           sendAT(GF("AP0"));  // Set back to transparent mode
+          waitResponse();
           writeChanges();
           stat = REG_UNKNOWN;
         }
-        else if(res == GF("FF"))  // 0xFF Device is currently scanning for the configured SSID.
+        else if(intRes == 0xFF)  // 0xFF Device is currently scanning for the configured SSID.
           stat = REG_SEARCHING;
         else stat = REG_UNKNOWN;
           break;
@@ -446,18 +437,6 @@ public:
     exitCommand();
     return stat;
   }
-
-  String getOperator() {
-    if (!commandMode()) return "";  // Return immediately
-    sendAT(GF("MN"));
-    String res = readResponse();
-    exitCommand();
-    return res;
-  }
-
- /*
-  * Generic network functions
-  */
 
   int getSignalQuality() {
     if (!commandMode()) return 0;  // Return immediately
@@ -473,18 +452,36 @@ public:
   }
 
   bool isNetworkConnected() {
-    RegStatus s = getRegistrationStatus();
-    return (s == REG_OK_HOME || s == REG_OK_ROAMING);
+    int s = getRegistrationStatus();
+    return (s == REG_OK);
   }
 
   bool waitForNetwork(unsigned long timeout = 60000L) {
+    commandMode();
     for (unsigned long start = millis(); millis() - start < timeout; ) {
-      if (isNetworkConnected()) {
+      sendAT(GF("AI"));
+      String res = readResponse();
+      char buf[3] = {0,};  // Set up buffer for response
+      res.toCharArray(buf, 3);
+      int intRes = strtol(buf, 0, 16);
+      if (intRes == 0) {
+        exitCommand();
         return true;
       }
       delay(250);
     }
+    exitCommand();
     return false;
+  }
+
+  String getLocalIP() {
+    if (!commandMode()) return "";  // Return immediately
+    sendAT(GF("MY"));
+    String IPaddr; IPaddr.reserve(16);
+    // wait for the response - this response can be very slow
+    IPaddr = readResponse(30000);
+    exitCommand();
+    return IPaddr;
   }
 
   /*
@@ -514,27 +511,18 @@ fail:
   }
 
   bool networkDisconnect() {
-    return false;  // Doesn't support disconnecting
-  }
-
-  String getLocalIP() {
-    if (!commandMode()) return "";  // Return immediately
-    sendAT(GF("MY"));
-    String IPaddr; IPaddr.reserve(16);
-    // wait for the response - this response can be very slow
-    IPaddr = readResponse(30000);
+    if (!commandMode()) return false;  // return immediately
+    sendAT(GF("NR0"));  // Do a network reset in order to disconnect
+    int res = (1 == waitResponse(5000));
+    writeChanges();
     exitCommand();
-    return IPaddr;
-  }
-
-  IPAddress localIP() {
-    return TinyGsmIpFromString(getLocalIP());
+    return res;
   }
 
   /*
    * GPRS functions
    */
-  bool gprsConnect(const char* apn, const char* user = "", const char* pw = "") {
+  bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "") {
     if (!commandMode()) return false;  // Return immediately
     sendAT(GF("AN"), apn);  // Set the APN
     waitResponse();
@@ -543,19 +531,21 @@ fail:
     return true;
   }
 
-  bool gprsDisconnect() {  // TODO
-    return false;
+  bool gprsDisconnect() {
+    if (!commandMode()) return false;  // return immediately
+    sendAT(GF("AM1"));  // Cheating and disconnecting by turning on airplane mode
+    int res = (1 == waitResponse(5000));
+    writeChanges();
+    sendAT(GF("AM0"));  // Airplane mode off
+    waitResponse(5000);
+    writeChanges();
+    exitCommand();
+    return res;
   }
 
   /*
    * Messaging functions
    */
-
-  void sendUSSD() {
-  }
-
-  void sendSMS() {
-  }
 
   bool sendSMS(const String& number, const String& text) {
     if (!commandMode()) return false;  // Return immediately
@@ -579,6 +569,16 @@ fail:
   }
 
 
+  /*
+   * Location functions
+   */
+
+
+  /*
+   * Battery functions
+   */
+
+
 private:
 
   bool modemConnect(const char* host, uint16_t port, uint8_t mux = 0, bool ssl = false) {
@@ -591,8 +591,9 @@ private:
     {
       sendAT(GF("LA"), host);
       while (stream.available() < 4) {};  // wait for any response
-      strIP = streamReadUntil('\r');  // read result
-      // DBG("<<< ", strIP);
+      strIP = stream.readStringUntil('\r');  // read result
+      strIP.trim();
+      DBG("<<< ", strIP);
       if (!strIP.endsWith(GF("ERROR"))) gotIP = true;
       delay(100);  // short wait before trying again
     }
@@ -645,29 +646,9 @@ public:
 
   /* Utilities */
 
-  template<typename T>
-  void streamWrite(T last) {
-    stream.print(last);
-  }
-
-  template<typename T, typename... Args>
-  void streamWrite(T head, Args... tail) {
-    stream.print(head);
-    streamWrite(tail...);
-  }
-
-  int streamRead() { return stream.read(); }
-
-  String streamReadUntil(char c) {
-    TINY_GSM_YIELD();
-    String return_string = stream.readStringUntil(c);
-    return_string.trim();
-    return return_string;
-  }
-
   void streamClear(void) {
     TINY_GSM_YIELD();
-    while (stream.available()) { streamRead(); }
+    while (stream.available()) { stream.read(); }
   }
 
   bool commandMode(int retries = 2) {
@@ -679,7 +660,7 @@ public:
       // Default guard time is 1s, but the init fxn decreases it to 250 ms
       delay(guardTime);
       streamWrite(GF("+++"));  // enter command mode
-      // DBG("\r\n+++");
+      DBG("\r\n+++");
       success = (1 == waitResponse(guardTime*2));
       triesMade ++;
     }
@@ -700,19 +681,13 @@ public:
   }
 
   String readResponse(uint32_t timeout = 1000) {
+    TINY_GSM_YIELD();
     unsigned long startMillis = millis();
     while (!stream.available() && millis() - startMillis < timeout) {};
-    String res = streamReadUntil('\r');  // lines end with carriage returns
-    // DBG("<<< ", res);
+    String res = stream.readStringUntil('\r');  // lines end with carriage returns
+    res.trim();
+    DBG("<<< ", res);
     return res;
-  }
-
-  template<typename... Args>
-  void sendAT(Args... cmd) {
-    streamWrite("AT", cmd..., GSM_NL);
-    stream.flush();
-    TINY_GSM_YIELD();
-    // DBG("### AT:", cmd...);
   }
 
   // TODO: Optimize this!
@@ -732,7 +707,7 @@ public:
     do {
       TINY_GSM_YIELD();
       while (stream.available() > 0) {
-        int a = streamRead();
+        int a = stream.read();
         if (a <= 0) continue; // Skip 0x00 bytes, just in case
         data += (char)a;
         if (r1 && data.endsWith(r1)) {
@@ -768,7 +743,7 @@ finish:
       data.replace(GSM_NL GSM_NL, GSM_NL);
       data.replace(GSM_NL, "\r\n    ");
       if (data.length()) {
-        // DBG("<<< ", data);
+        DBG("<<< ", data);
       }
     }
     return index;
@@ -791,7 +766,6 @@ finish:
 private:
   int           guardTime;
   XBeeType      beeType;
-  Stream&       stream;
   GsmClient*    sockets[TINY_GSM_MUX_COUNT];
 };
 

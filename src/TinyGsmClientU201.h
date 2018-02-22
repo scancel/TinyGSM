@@ -9,7 +9,7 @@
 #ifndef TinyGsmClientU201_h
 #define TinyGsmClientU201_h
 
-//#define TINY_GSM_DEBUG Serial
+// #define TINY_GSM_DEBUG Serial
 
 #if !defined(TINY_GSM_RX_BUFFER)
   #define TINY_GSM_RX_BUFFER 64
@@ -18,10 +18,6 @@
 #define TINY_GSM_MUX_COUNT 5
 
 #include <TinyGsmCommon.h>
-
-#define GSM_NL "\r\n"
-static const char GSM_OK[] TINY_GSM_PROGMEM = "OK" GSM_NL;
-static const char GSM_ERROR[] TINY_GSM_PROGMEM = "ERROR" GSM_NL;
 
 enum SimStatus {
   SIM_ERROR = 0,
@@ -39,7 +35,7 @@ enum RegStatus {
 };
 
 
-class TinyGsmU201
+class TinyGsmU201 : public TinyGSMModem
 {
 
 public:
@@ -195,7 +191,7 @@ public:
 #else
   TinyGsmU201(Stream& stream)
 #endif
-    : stream(stream)
+  : TinyGSMModem(stream)
   {
     memset(sockets, 0, sizeof(sockets));
   }
@@ -274,8 +270,6 @@ public:
     return init();
   }
 
-  bool poweroff() TINY_GSM_ATTR_NOT_IMPLEMENTED;
-
   /*
    * SIM card functions
    */
@@ -307,7 +301,7 @@ public:
     return res;
   }
 
-  SimStatus getSimStatus(unsigned long timeout = 10000L) {
+  int getSimStatus(unsigned long timeout = 10000L) {
     for (unsigned long start = millis(); millis() - start < timeout; ) {
       sendAT(GF("+CPIN?"));
       if (waitResponse(GF(GSM_NL "+CPIN:")) != 1) {
@@ -323,18 +317,7 @@ public:
       default: return SIM_ERROR;
       }
     }
-    return SIM_ERROR;
-  }
-
-  RegStatus getRegistrationStatus() {
-    sendAT(GF("+CGREG?"));
-    if (waitResponse(GF(GSM_NL "+CGREG:")) != 1) {
-      return REG_UNKNOWN;
-    }
-    streamSkipUntil(','); // Skip format (0)
-    int status = stream.readStringUntil('\n').toInt();
-    waitResponse();
-    return (RegStatus)status;
+    return (int)SIM_ERROR;
   }
 
   String getOperator() {
@@ -352,6 +335,17 @@ public:
    * Generic network functions
    */
 
+  int getRegistrationStatus() {
+    sendAT(GF("+CGREG?"));
+    if (waitResponse(GF(GSM_NL "+CGREG:")) != 1) {
+      return REG_UNKNOWN;
+    }
+    streamSkipUntil(','); // Skip format (0)
+    int status = stream.readStringUntil('\n').toInt();
+    waitResponse();
+    return (RegStatus)status;
+  }
+
   int getSignalQuality() {
     sendAT(GF("+CSQ"));
     if (waitResponse(GF(GSM_NL "+CSQ:")) != 1) {
@@ -363,24 +357,28 @@ public:
   }
 
   bool isNetworkConnected() {
-    RegStatus s = getRegistrationStatus();
+    int s = getRegistrationStatus();
     return (s == REG_OK_HOME || s == REG_OK_ROAMING);
   }
 
-  bool waitForNetwork(unsigned long timeout = 60000L) {
-    for (unsigned long start = millis(); millis() - start < timeout; ) {
-      if (isNetworkConnected()) {
-        return true;
-      }
-      delay(250);
+  String getLocalIP() {
+    sendAT(GF("+CIFSR;E0"));
+    String res;
+    if (waitResponse(10000L, res) != 1) {
+      return "";
     }
-    return false;
+    res.trim();
+    return res;
   }
+
+  /*
+   * WiFi functions
+   */
 
   /*
    * GPRS functions
    */
-  bool gprsConnect(const char* apn, const char* user, const char* pwd) {
+  bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "") {
     gprsDisconnect();
 
     sendAT(GF("+CGATT=1"));
@@ -441,19 +439,6 @@ public:
     return true;
   }
 
-  String getLocalIP() {
-    sendAT(GF("+CIFSR;E0"));
-    String res;
-    if (waitResponse(10000L, res) != 1) {
-      return "";
-    }
-    res.trim();
-    return res;
-  }
-
-  IPAddress localIP() {
-    return TinyGsmIpFromString(getLocalIP());
-  }
   /*
    * Messaging functions
    */
@@ -483,6 +468,7 @@ public:
   /*
    * Battery functions
    */
+
   // Use: float vBatt = modem.getBattVoltage() / 1000.0;
   uint16_t getBattVoltage() {
     sendAT(GF("+CIND"));
@@ -582,38 +568,6 @@ public:
 
   /* Utilities */
 
-  template<typename T>
-  void streamWrite(T last) {
-    stream.print(last);
-  }
-
-  template<typename T, typename... Args>
-  void streamWrite(T head, Args... tail) {
-    stream.print(head);
-    streamWrite(tail...);
-  }
-
-  bool streamSkipUntil(char c) {
-    const unsigned long timeout = 1000L;
-    unsigned long startMillis = millis();
-    while (millis() - startMillis < timeout) {
-      while (millis() - startMillis < timeout && !stream.available()) {
-        TINY_GSM_YIELD();
-      }
-      if (stream.read() == c)
-        return true;
-    }
-    return false;
-  }
-
-  template<typename... Args>
-  void sendAT(Args... cmd) {
-    streamWrite("AT", cmd..., GSM_NL);
-    stream.flush();
-    TINY_GSM_YIELD();
-    //DBG("### AT:", cmd...);
-  }
-
   // TODO: Optimize this!
   uint8_t waitResponse(uint32_t timeout, String& data,
                        GsmConstStr r1=GFP(GSM_OK), GsmConstStr r2=GFP(GSM_ERROR),
@@ -691,7 +645,6 @@ finish:
   }
 
 protected:
-  Stream&       stream;
   GsmClient*    sockets[TINY_GSM_MUX_COUNT];
 };
 

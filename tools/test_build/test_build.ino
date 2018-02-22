@@ -35,13 +35,8 @@ void loop() {
   modem.getSimCCID();
   modem.getIMEI();
   modem.getSimStatus();
-  modem.getRegistrationStatus();
   modem.getOperator();
   #endif
-
-
-  // Test the Networking functions
-  modem.getSignalQuality();
 
 
   #if defined(TINY_GSM_MODEM_HAS_GPRS)
@@ -52,6 +47,11 @@ void loop() {
     modem.networkConnect("YourSSID", "YourPWD");
     modem.waitForNetwork();
   #endif
+
+  // Test the Networking functions
+  modem.getRegistrationStatus();
+  modem.getSignalQuality();
+  modem.isNetworkConnected();
 
   client.connect(server, 80);
 
@@ -77,4 +77,3 @@ void loop() {
     modem.networkDisconnect();
   #endif
 }
-

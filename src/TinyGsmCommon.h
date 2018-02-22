@@ -181,4 +181,200 @@ String TinyGsmDecodeHex16bit(String &instr) {
   return result;
 }
 
+#if defined(TINY_GSM_MODEM_SIM800) || defined(TINY_GSM_MODEM_SIM900) || defined(TINY_GSM_MODEM_SIM808) || defined(TINY_GSM_MODEM_SIM868)
+  #define GSM_NL "\r\n"
+
+#elif defined(TINY_GSM_MODEM_A6) || defined(TINY_GSM_MODEM_A7)
+  #define GSM_NL "\r\n"
+
+#elif defined(TINY_GSM_MODEM_M590)
+  #define GSM_NL "\r\n"
+
+#elif defined(TINY_GSM_MODEM_U201)
+  #define GSM_NL "\r\n"
+
+#elif defined(TINY_GSM_MODEM_ESP8266)
+  #define GSM_NL "\r\n"
+
+#elif defined(TINY_GSM_MODEM_XBEE)
+  #define GSM_NL "\r"
+
+#else
+  #error "Please define GSM modem model"
+  // Some definitions for myself to help debugging
+  #define GSM_NL "\r\n"
+#endif
+
+static const char GSM_OK[] TINY_GSM_PROGMEM = "OK" GSM_NL;
+static const char GSM_ERROR[] TINY_GSM_PROGMEM = "ERROR" GSM_NL;
+
+
+class TinyGSMModem
+{
+
+public:
+
+#ifdef GSM_DEFAULT_STREAM
+  TinyGSMModem(Stream& stream = GSM_DEFAULT_STREAM)
+#else
+  TinyGSMModem(Stream& stream)
+#endif
+    : stream(stream)
+  {}
+
+  /*
+   * Basic functions
+   */
+  virtual bool begin() {
+    return init();
+  }
+
+  virtual bool init() = 0;
+  virtual void setBaud(unsigned long baud) = 0;
+  virtual bool testAT(unsigned long timeout = 10000L) = 0;
+  virtual void maintain() = 0;
+  virtual bool factoryDefault() = 0;
+  virtual bool hasSSL() {
+    #if defined(TINY_GSM_MODEM_HAS_SSL)
+    return true;
+    #else
+    return false;
+    #endif
+  }
+
+  /*
+   * Power functions
+   */
+
+  virtual bool restart() = 0;
+  bool poweroff() TINY_GSM_ATTR_NOT_AVAILABLE;
+  bool radioOff() TINY_GSM_ATTR_NOT_IMPLEMENTED;
+  bool sleepEnable(bool enable = true) TINY_GSM_ATTR_NOT_IMPLEMENTED;
+
+  /*
+   * SIM card functions
+   */
+
+  virtual bool simUnlock(const char *pin) TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual String getSimCCID() TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual String getIMEI() TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual int getSimStatus(unsigned long timeout = 10000L) TINY_GSM_ATTR_NOT_AVAILABLE;
+  String getOperator() TINY_GSM_ATTR_NOT_AVAILABLE;
+
+  /*
+   * Generic network functions
+   */
+
+  virtual int getRegistrationStatus() TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual int getSignalQuality() TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual bool isNetworkConnected() = 0;
+  virtual bool waitForNetwork(unsigned long timeout = 60000L) {
+    for (unsigned long start = millis(); millis() - start < timeout; ) {
+      if (isNetworkConnected()) {
+        return true;
+      }
+      delay(250);
+    }
+    return false;
+  }
+  virtual String getLocalIP() TINY_GSM_ATTR_NOT_AVAILABLE;
+
+  virtual IPAddress localIP() {
+    return TinyGsmIpFromString(getLocalIP());
+  }
+
+  /*
+   * WiFi functions
+   */
+
+  virtual bool networkConnect(const char* ssid, const char* pwd)
+    TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual bool networkDisconnect(const char* ssid, const char* pwd)
+    TINY_GSM_ATTR_NOT_AVAILABLE;
+
+  /*
+   * GPRS functions
+   */
+
+  virtual bool gprsConnect(const char* apn, const char* user = "", const char* pwd = "")
+     TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual bool gprsDisconnect() TINY_GSM_ATTR_NOT_AVAILABLE;
+
+  /*
+   * Messaging functions
+   */
+
+  virtual void sendUSSD() TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual void sendSMS() TINY_GSM_ATTR_NOT_AVAILABLE;
+  virtual bool sendSMS(const String& number, const String& text) TINY_GSM_ATTR_NOT_AVAILABLE;
+
+
+  /*
+   * Location functions
+   */
+
+  String getGsmLocation() TINY_GSM_ATTR_NOT_AVAILABLE;
+
+  /*
+   * Battery functions
+   */
+
+  uint16_t getBattVoltage() TINY_GSM_ATTR_NOT_AVAILABLE;
+  int getBattPercent() TINY_GSM_ATTR_NOT_AVAILABLE;
+
+protected:
+
+  virtual bool modemConnect(const char* host, uint16_t port, uint8_t mux = 0, bool ssl = false) = 0;
+  virtual bool modemConnect(IPAddress ip, uint16_t port, uint8_t mux = 0, bool ssl = false) = 0;
+  virtual int modemSend(const void* buff, size_t len, uint8_t mux = 0) = 0;
+  virtual bool modemGetConnected(uint8_t mux = 0) = 0;
+
+public:
+
+  /* Utilities */
+
+  template<typename T>
+  void streamWrite(T last) {
+    stream.print(last);
+  }
+
+  template<typename T, typename... Args>
+  void streamWrite(T head, Args... tail) {
+    stream.print(head);
+    streamWrite(tail...);
+  }
+
+  bool streamSkipUntil(char c) {
+    const unsigned long timeout = 1000L;
+    unsigned long startMillis = millis();
+    while (millis() - startMillis < timeout) {
+      while (millis() - startMillis < timeout && !stream.available()) {
+        TINY_GSM_YIELD();
+      }
+      if (stream.read() == c)
+        return true;
+    }
+    return false;
+  }
+
+  template<typename... Args>
+  void sendAT(Args... cmd) {
+    streamWrite("AT", cmd..., GSM_NL);
+    stream.flush();
+    TINY_GSM_YIELD();
+    DBG("### AT:", cmd...);
+  }
+
+  // TODO: Optimize this!
+  virtual uint8_t waitResponse(uint32_t timeout, String& data,
+                               GsmConstStr r1=GFP(GSM_OK),
+                               GsmConstStr r2=GFP(GSM_ERROR),
+                               GsmConstStr r3=NULL,
+                               GsmConstStr r4=NULL,
+                               GsmConstStr r5=NULL) = 0;
+
+protected:
+  Stream&       stream;
+};
+
 #endif
