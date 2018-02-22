@@ -252,10 +252,8 @@ public:
    * SIM card functions
    */
 #if defined(TINY_GSM_MODEM_HAS_GPRS)
-  virtual bool simUnlock(const char *pin) = 0;
   virtual String getSimCCID() = 0;
   virtual String getIMEI() = 0;
-  virtual int getSimStatus(unsigned long timeout = 10000L) = 0;
   virtual String getOperator() = 0;
 #endif
 

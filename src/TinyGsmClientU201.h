@@ -199,11 +199,11 @@ public:
   /*
    * Basic functions
    */
-  bool begin(const char* pin = NULL) {
+  bool begin(const char* pin) {
     return init(pin);
   }
 
-  bool init(const char* pin = NULL) {
+  bool init(const char* pin) {
     if (!testAT()) {
       return false;
     }
@@ -216,6 +216,10 @@ public:
       simUnlock(pin);
     }
     return (getSimStatus() == SIM_READY);
+  }
+  bool init() {
+    const char* pin = NULL;
+    return init(pin);
   }
 
   void setBaud(unsigned long baud) {
