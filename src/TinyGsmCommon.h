@@ -322,13 +322,6 @@ public:
   uint16_t getBattVoltage() TINY_GSM_ATTR_NOT_AVAILABLE;
   int getBattPercent() TINY_GSM_ATTR_NOT_AVAILABLE;
 
-protected:
-
-  virtual bool modemConnect(const char* host, uint16_t port, uint8_t mux = 0, bool ssl = false) = 0;
-  virtual bool modemConnect(IPAddress ip, uint16_t port, uint8_t mux = 0, bool ssl = false) = 0;
-  virtual int modemSend(const void* buff, size_t len, uint8_t mux = 0) = 0;
-  virtual bool modemGetConnected(uint8_t mux = 0) = 0;
-
 public:
 
   /* Utilities */
