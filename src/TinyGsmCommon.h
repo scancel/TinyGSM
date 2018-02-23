@@ -20,7 +20,8 @@
 #endif
 
 #include <Client.h>
-#include <TinyGsmFifo.h>
+#include "TinyGsmClient.h"
+#include "TinyGsmFifo.h"
 
 #ifndef TINY_GSM_YIELD
   #define TINY_GSM_YIELD() { delay(0); }
@@ -181,36 +182,170 @@ String TinyGsmDecodeHex16bit(String &instr) {
   return result;
 }
 
-#if defined(TINY_GSM_MODEM_SIM800) || defined(TINY_GSM_MODEM_SIM900) || defined(TINY_GSM_MODEM_SIM808) || defined(TINY_GSM_MODEM_SIM868)
-  #define GSM_NL "\r\n"
-
-#elif defined(TINY_GSM_MODEM_A6) || defined(TINY_GSM_MODEM_A7)
-  #define GSM_NL "\r\n"
-
-#elif defined(TINY_GSM_MODEM_M590)
-  #define GSM_NL "\r\n"
-
-#elif defined(TINY_GSM_MODEM_U201)
-  #define GSM_NL "\r\n"
-
-#elif defined(TINY_GSM_MODEM_ESP8266)
-  #define GSM_NL "\r\n"
-
-#elif defined(TINY_GSM_MODEM_XBEE)
-  #define GSM_NL "\r"
-
-#else
-  #error "Please define GSM modem model"
-  // Some definitions for myself to help debugging
-  #define GSM_NL "\r\n"
-#endif
-
 static const char GSM_OK[] TINY_GSM_PROGMEM = "OK" GSM_NL;
 static const char GSM_ERROR[] TINY_GSM_PROGMEM = "ERROR" GSM_NL;
 
 
+//============================================================================//
+//============================================================================//
+//               Declaration of the TinyGSMModem Parent Class
+//============================================================================//
+//============================================================================//
 class TinyGSMModem
 {
+
+public:
+
+//============================================================================//
+//============================================================================//
+//      Declaration and definition of the GsmClientCommon Parent Class
+//============================================================================//
+//============================================================================//
+class GsmClientCommon : public Client
+{
+  friend class TinyGSMModem;
+  typedef TinyGsmFifo<uint8_t, TINY_GSM_RX_BUFFER> RxFifo;
+
+public:
+  GsmClientCommon() {}
+
+  GsmClientCommon(TinyGSMModem& modem, uint8_t mux = 1) {
+    init(&modem, mux);
+  }
+
+  bool init(TinyGSMModem* modem, uint8_t mux = 1) {
+    this->at = modem;
+    this->mux = mux;
+    sock_available = 0;
+    prev_check = 0;
+    sock_connected = false;
+    got_data = false;
+
+    at->sockets[mux] = this;
+
+    return true;
+  }
+
+public:
+  virtual int connect(const char *host, uint16_t port) {
+    TINY_GSM_YIELD();
+    rx.clear();
+    sock_connected = at->modemConnect(host, port, mux);
+    return sock_connected;
+  }
+
+  virtual int connect(IPAddress ip, uint16_t port) {
+    String host; host.reserve(16);
+    host += ip[0];
+    host += ".";
+    host += ip[1];
+    host += ".";
+    host += ip[2];
+    host += ".";
+    host += ip[3];
+    return connect(host.c_str(), port);
+  }
+
+  virtual void stop() {
+    TINY_GSM_YIELD();
+    at->sendAT(GF("+CIPCLOSE="), mux);
+    sock_connected = false;
+    at->waitResponse();
+  }
+
+  virtual size_t write(const uint8_t *buf, size_t size) {
+    TINY_GSM_YIELD();
+    at->maintain();
+    return at->modemSend(buf, size, mux);
+  }
+
+  virtual size_t write(uint8_t c) {
+    return write(&c, 1);
+  }
+
+  virtual int available() {
+    TINY_GSM_YIELD();
+    if (!rx.size() && sock_connected) {
+      // Workaround: sometimes SIM800 forgets to notify about data arrival.
+      // TODO: Currently we ping the module periodically,
+      // but maybe there's a better indicator that we need to poll
+      if (millis() - prev_check > 500) {
+        got_data = true;
+        prev_check = millis();
+      }
+      at->maintain();
+    }
+    return rx.size() + sock_available;
+  }
+
+  virtual int read(uint8_t *buf, size_t size) {
+    TINY_GSM_YIELD();
+    size_t cnt = 0;
+    uint32_t _startMillis = millis();
+    while (cnt < size && millis() - _startMillis < _timeout) {
+      size_t chunk = TinyGsmMin(size-cnt, rx.size());
+      if (chunk > 0) {
+        rx.get(buf, chunk);
+        buf += chunk;
+        cnt += chunk;
+        continue;
+      }
+      // TODO: Read directly into user buffer?
+      if (!rx.size() && sock_connected) {
+        at->maintain();
+        //break;
+      }
+    }
+    return cnt;
+  }
+
+  virtual int read() {
+    uint8_t c;
+    if (read(&c, 1) == 1) {
+      return c;
+    }
+    return -1;
+  }
+
+  virtual int peek() { return -1; } //TODO
+  virtual void flush() { at->stream.flush(); }
+
+  virtual uint8_t connected() {
+    if (available()) {
+      return true;
+    }
+    return sock_connected;
+  }
+  virtual operator bool() { return connected(); }
+
+  /*
+   * Extended API
+   */
+
+  String remoteIP() TINY_GSM_ATTR_NOT_IMPLEMENTED;
+
+protected:
+  TinyGSMModem* at;
+  uint8_t       mux;
+  uint16_t      sock_available;
+  uint32_t      prev_check;
+  bool          sock_connected;
+  bool          got_data;
+  RxFifo        rx;
+};
+
+//============================================================================//
+//============================================================================//
+//                     The secure client goes here, if applicable
+//============================================================================//
+//============================================================================//
+
+
+//============================================================================//
+//============================================================================//
+//              Functions for within the TinyGSMModem Parent Class
+//============================================================================//
+//============================================================================//
 
 public:
 
@@ -370,8 +505,31 @@ public:
                                GsmConstStr r4=NULL,
                                GsmConstStr r5=NULL) = 0;
 
+
+
+  uint8_t waitResponse(uint32_t timeout,
+                       GsmConstStr r1=GFP(GSM_OK), GsmConstStr r2=GFP(GSM_ERROR),
+                       GsmConstStr r3=NULL, GsmConstStr r4=NULL, GsmConstStr r5=NULL)
+  {
+    String data;
+    return waitResponse(timeout, data, r1, r2, r3, r4, r5);
+  }
+
+  uint8_t waitResponse(GsmConstStr r1=GFP(GSM_OK), GsmConstStr r2=GFP(GSM_ERROR),
+                       GsmConstStr r3=NULL, GsmConstStr r4=NULL, GsmConstStr r5=NULL)
+  {
+    return waitResponse(1000, r1, r2, r3, r4, r5);
+  }
+
+
 protected:
-  Stream&       stream;
+
+  virtual bool modemConnect(const char* host, uint16_t port, uint8_t mux, bool ssl = false) = 0;
+  virtual bool modemGetConnected(uint8_t mux) = 0;
+  virtual int modemSend(const void* buff, size_t len, uint8_t mux) = 0;
+
+  Stream&             stream;
+  GsmClientCommon*    sockets[TINY_GSM_MUX_COUNT];
 };
 
 #endif

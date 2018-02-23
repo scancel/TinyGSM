@@ -11,12 +11,6 @@
 
 // #define TINY_GSM_DEBUG Serial
 
-#if !defined(TINY_GSM_RX_BUFFER)
-  #define TINY_GSM_RX_BUFFER 64
-#endif
-
-#define TINY_GSM_MUX_COUNT 5
-
 #include <TinyGsmCommon.h>
 
 enum SimStatus {
@@ -35,20 +29,31 @@ enum RegStatus {
 };
 
 
+//============================================================================//
+//============================================================================//
+//                   Declaration of the TinyGsmU201 Class
+//============================================================================//
+//============================================================================//
+
 class TinyGsmU201 : public TinyGSMModem
 {
 
+//============================================================================//
+//============================================================================//
+//                          The U201 Client Class
+//============================================================================//
+//============================================================================//
+
 public:
 
-class GsmClient : public Client
+class GsmClientU201 : public TinyGSMModem::GsmClientCommon
 {
   friend class TinyGsmU201;
-  typedef TinyGsmFifo<uint8_t, TINY_GSM_RX_BUFFER> RxFifo;
 
 public:
-  GsmClient() {}
+  GsmClientU201() {}
 
-  GsmClient(TinyGsmU201& modem, uint8_t mux = 1) {
+  GsmClientU201(TinyGsmU201& modem, uint8_t mux = 1) {
     init(&modem, mux);
   }
 
@@ -158,20 +163,21 @@ public:
 
 private:
   TinyGsmU201*  at;
-  uint8_t       mux;
-  uint16_t      sock_available;
-  bool          sock_connected;
-  bool          got_data;
-  RxFifo        rx;
 };
 
-class GsmClientSecure : public GsmClient
+//============================================================================//
+//============================================================================//
+//                          The Secure U201 Client Class
+//============================================================================//
+//============================================================================//
+
+class GsmClientU201Secure : public GsmClientU201
 {
 public:
-  GsmClientSecure() {}
+  GsmClientU201Secure() {}
 
-  GsmClientSecure(TinyGsmU201& modem, uint8_t mux = 1)
-    : GsmClient(modem, mux)
+  GsmClientU201Secure(TinyGsmU201& modem, uint8_t mux = 1)
+    : GsmClientU201(modem, mux)
   {}
 
 public:
@@ -183,6 +189,13 @@ public:
     return sock_connected;
   }
 };
+
+
+//============================================================================//
+//============================================================================//
+//                          The U201 Modem Functions
+//============================================================================//
+//============================================================================//
 
 public:
 
@@ -240,7 +253,7 @@ public:
 
   void maintain() {
     for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
-      GsmClient* sock = sockets[mux];
+      GsmClientU201* sock = sockets[mux];
       if (sock && sock->got_data) {
         sock->got_data = false;
         sock->sock_available = modemGetAvailable(mux);
@@ -649,7 +662,7 @@ finish:
   }
 
 protected:
-  GsmClient*    sockets[TINY_GSM_MUX_COUNT];
+  GsmClientU201*    sockets[TINY_GSM_MUX_COUNT];
 };
 
 #endif

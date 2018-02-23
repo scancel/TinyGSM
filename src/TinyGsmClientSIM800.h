@@ -12,11 +12,6 @@
 // #define TINY_GSM_DEBUG Serial
 // #define TINY_GSM_USE_HEX
 
-#if !defined(TINY_GSM_RX_BUFFER)
-  #define TINY_GSM_RX_BUFFER 64
-#endif
-
-#define TINY_GSM_MUX_COUNT 5
 
 #include <TinyGsmCommon.h>
 
@@ -36,89 +31,36 @@ enum RegStatus {
 };
 
 
+//============================================================================//
+//============================================================================//
+//                    Declaration of the TinyGsmSim800 Class
+//============================================================================//
+//============================================================================//
+
 class TinyGsmSim800 : public TinyGSMModem
 {
 
+//============================================================================//
+//============================================================================//
+//                          The Sim800 Client Class
+//============================================================================//
+//============================================================================//
+
 public:
 
-class GsmClient : public Client
+class GsmClientSim800 : public TinyGSMModem::GsmClientCommon
 {
   friend class TinyGsmSim800;
-  typedef TinyGsmFifo<uint8_t, TINY_GSM_RX_BUFFER> RxFifo;
 
 public:
-  GsmClient() {}
+  GsmClientSim800() {}
 
-  GsmClient(TinyGsmSim800& modem, uint8_t mux = 1) {
+  GsmClientSim800(TinyGsmSim800& modem, uint8_t mux = 1) {
     init(&modem, mux);
   }
-
-  bool init(TinyGsmSim800* modem, uint8_t mux = 1) {
-    this->at = modem;
-    this->mux = mux;
-    sock_available = 0;
-    prev_check = 0;
-    sock_connected = false;
-    got_data = false;
-
-    at->sockets[mux] = this;
-
-    return true;
-  }
-
 public:
-  virtual int connect(const char *host, uint16_t port) {
-    TINY_GSM_YIELD();
-    rx.clear();
-    sock_connected = at->modemConnect(host, port, mux);
-    return sock_connected;
-  }
 
-  virtual int connect(IPAddress ip, uint16_t port) {
-    String host; host.reserve(16);
-    host += ip[0];
-    host += ".";
-    host += ip[1];
-    host += ".";
-    host += ip[2];
-    host += ".";
-    host += ip[3];
-    return connect(host.c_str(), port);
-  }
-
-  virtual void stop() {
-    TINY_GSM_YIELD();
-    at->sendAT(GF("+CIPCLOSE="), mux);
-    sock_connected = false;
-    at->waitResponse();
-  }
-
-  virtual size_t write(const uint8_t *buf, size_t size) {
-    TINY_GSM_YIELD();
-    at->maintain();
-    return at->modemSend(buf, size, mux);
-  }
-
-  virtual size_t write(uint8_t c) {
-    return write(&c, 1);
-  }
-
-  virtual int available() {
-    TINY_GSM_YIELD();
-    if (!rx.size() && sock_connected) {
-      // Workaround: sometimes SIM800 forgets to notify about data arrival.
-      // TODO: Currently we ping the module periodically,
-      // but maybe there's a better indicator that we need to poll
-      if (millis() - prev_check > 500) {
-        got_data = true;
-        prev_check = millis();
-      }
-      at->maintain();
-    }
-    return rx.size() + sock_available;
-  }
-
-  virtual int read(uint8_t *buf, size_t size) {
+  virtual int read(uint8_t *buf, size_t size) override {
     TINY_GSM_YIELD();
     at->maintain();
     size_t cnt = 0;
@@ -141,58 +83,39 @@ public:
     return cnt;
   }
 
-  virtual int read() {
-    uint8_t c;
-    if (read(&c, 1) == 1) {
-      return c;
-    }
-    return -1;
-  }
-
-  virtual int peek() { return -1; } //TODO
-  virtual void flush() { at->stream.flush(); }
-
-  virtual uint8_t connected() {
-    if (available()) {
-      return true;
-    }
-    return sock_connected;
-  }
-  virtual operator bool() { return connected(); }
-
-  /*
-   * Extended API
-   */
-
-  String remoteIP() TINY_GSM_ATTR_NOT_IMPLEMENTED;
-
-private:
+protected:
   TinyGsmSim800* at;
-  uint8_t       mux;
-  uint16_t      sock_available;
-  uint32_t      prev_check;
-  bool          sock_connected;
-  bool          got_data;
-  RxFifo        rx;
 };
 
-class GsmClientSecure : public GsmClient
+//============================================================================//
+//============================================================================//
+//                          The SIM800 Secure Client
+//============================================================================//
+//============================================================================//
+
+class GsmClientSim800Secure : public GsmClientSim800
 {
 public:
-  GsmClientSecure() {}
+  GsmClientSim800Secure() {}
 
-  GsmClientSecure(TinyGsmSim800& modem, uint8_t mux = 1)
-    : GsmClient(modem, mux)
+  GsmClientSim800Secure(TinyGsmSim800& modem, uint8_t mux = 1)
+    : GsmClientSim800(modem, mux)
   {}
 
-public:
-  virtual int connect(const char *host, uint16_t port) {
-    TINY_GSM_YIELD();
-    rx.clear();
-    sock_connected = at->modemConnect(host, port, mux, true);
-    return sock_connected;
-  }
+  public:
+    virtual int connect(const char *host, uint16_t port) {
+      TINY_GSM_YIELD();
+      rx.clear();
+      sock_connected = at->modemConnect(host, port, mux, true);
+      return sock_connected;
+    }
 };
+
+//============================================================================//
+//============================================================================//
+//                          The SIM800 Modem Functions
+//============================================================================//
+//============================================================================//
 
 public:
 
@@ -248,7 +171,7 @@ public:
 
   void maintain() {
     for (int mux = 0; mux < TINY_GSM_MUX_COUNT; mux++) {
-      GsmClient* sock = sockets[mux];
+      GsmClientSim800* sock = sockets[mux];
       if (sock && sock->got_data) {
         sock->got_data = false;
         sock->sock_available = modemGetAvailable(mux);
@@ -855,7 +778,7 @@ finish:
   }
 
 protected:
-  GsmClient*    sockets[TINY_GSM_MUX_COUNT];
+  GsmClientSim800*    sockets[TINY_GSM_MUX_COUNT];
 };
 
 #endif

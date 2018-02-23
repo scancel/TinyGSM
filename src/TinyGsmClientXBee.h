@@ -11,8 +11,6 @@
 
 // #define TINY_GSM_DEBUG Serial
 
-#define TINY_GSM_MUX_COUNT 1  // Multi-plexing isn't supported using command mode
-
 #include <TinyGsmCommon.h>
 
 enum RegStatus {
@@ -29,19 +27,31 @@ enum XBeeType {
 };
 
 
+//============================================================================//
+//============================================================================//
+//                   Declaration of the TinyGsmXBee Class
+//============================================================================//
+//============================================================================//
+
 class TinyGsmXBee : public TinyGSMModem
 {
 
 public:
 
-class GsmClient : public Client
+//============================================================================//
+//============================================================================//
+//                          The XBee Client Class
+//============================================================================//
+//============================================================================//
+
+class GsmClientXBee : public TinyGSMModem::GsmClientCommon
 {
   friend class TinyGsmXBee;
 
 public:
-  GsmClient() {}
+  GsmClientXBee() {}
 
-  GsmClient(TinyGsmXBee& modem, uint8_t mux = 0) {
+  GsmClientXBee(TinyGsmXBee& modem, uint8_t mux = 0) {
     init(&modem, mux);
   }
 
@@ -51,12 +61,11 @@ public:
     sock_connected = false;
 
     at->sockets[mux] = this;
-
     return true;
   }
 
 public:
-  virtual int connect(const char *host, uint16_t port) {
+  virtual int connect(const char *host, uint16_t port) override {
     at->streamClear();  // Empty anything remaining in the buffer;
     bool sock_connected = false;
     if (at->commandMode())  {  // Don't try if we didn't successfully get into command mode
@@ -68,7 +77,7 @@ public:
     return sock_connected;
   }
 
-  virtual int connect(IPAddress ip, uint16_t port) {
+  virtual int connect(IPAddress ip, uint16_t port) override {
     at->streamClear();  // Empty anything remaining in the buffer;
     bool sock_connected = false;
     if (at->commandMode())  {  // Don't try if we didn't successfully get into command mode
@@ -82,7 +91,7 @@ public:
 
   // This is a hack to shut the socket by setting the timeout to zero and
   //  then sending an empty line to the server.
-  virtual void stop() {
+  virtual void stop() override {
     at->streamClear();  // Empty anything remaining in the buffer;
     at->commandMode();
     at->sendAT(GF("TM0"));  // Set socket timeout to 0;
@@ -99,41 +108,28 @@ public:
     sock_connected = false;
   }
 
-  virtual size_t write(const uint8_t *buf, size_t size) {
+  virtual size_t write(const uint8_t *buf, size_t size) override {
     TINY_GSM_YIELD();
     //at->maintain();
     return at->modemSend(buf, size, mux);
   }
 
-  virtual size_t write(uint8_t c) {
-    return write(&c, 1);
-  }
-
-  virtual int available() {
+  virtual int available() override {
     TINY_GSM_YIELD();
     return at->stream.available();
   }
 
-  virtual int read(uint8_t *buf, size_t size) {
+  virtual int read(uint8_t *buf, size_t size) override {
     TINY_GSM_YIELD();
     return at->stream.readBytes((char*)buf, size);
   }
 
-  virtual int read() {
+  virtual int read() override {
     TINY_GSM_YIELD();
     return at->stream.read();
   }
 
-  virtual int peek() { return at->stream.peek(); }
-  virtual void flush() { at->stream.flush(); }
-
-  virtual uint8_t connected() {
-    if (available()) {
-      return true;
-    }
-    return sock_connected;
-  }
-  virtual operator bool() { return connected(); }
+  virtual int peek() override { return at->stream.peek(); }
 
   /*
    * Extended API
@@ -143,17 +139,22 @@ public:
 
 private:
   TinyGsmXBee*  at;
-  uint8_t       mux;
-  bool          sock_connected;
 };
 
-class GsmClientSecure : public GsmClient
+//============================================================================//
+//============================================================================//
+//                          The Secure XBee Client Class
+//============================================================================//
+//============================================================================//
+
+
+class GsmClientXBeeSecure : public GsmClientXBee
 {
 public:
-  GsmClientSecure() {}
+  GsmClientXBeeSecure() {}
 
-  GsmClientSecure(TinyGsmXBee& modem, uint8_t mux = 1)
-    : GsmClient(modem, mux)
+  GsmClientXBeeSecure(TinyGsmXBee& modem, uint8_t mux = 1)
+    : GsmClientXBee(modem, mux)
   {}
 
 public:
@@ -182,6 +183,13 @@ public:
   }
 };
 
+
+//============================================================================//
+//============================================================================//
+//                          The XBee Modem Functions
+//============================================================================//
+//============================================================================//
+
 public:
 
 #ifdef GSM_DEFAULT_STREAM
@@ -190,9 +198,7 @@ public:
   TinyGsmXBee(Stream& stream)
 #endif
   : TinyGSMModem(stream)
-  {
-    memset(sockets, 0, sizeof(sockets));
-  }
+  {}
 
   /*
    * Basic functions
@@ -766,7 +772,7 @@ finish:
 private:
   int           guardTime;
   XBeeType      beeType;
-  GsmClient*    sockets[TINY_GSM_MUX_COUNT];
+  GsmClientXBee*    sockets[TINY_GSM_MUX_COUNT];
 };
 
 #endif
