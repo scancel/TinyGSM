@@ -66,7 +66,7 @@ namespace {
 
   template<typename... Args>
   static void DBG(Args... args) {
-    TINY_GSM_DEBUG.print(GF("["));
+    TINY_GSM_DEBUG.print(GF("\n["));
     TINY_GSM_DEBUG.print(millis());
     TINY_GSM_DEBUG.print(GF("] "));
     DBG_PLAIN(args...);
